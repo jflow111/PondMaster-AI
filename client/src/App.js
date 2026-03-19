@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 const C = {
   bg: '#020c18',
@@ -442,6 +442,305 @@ function fmt(n) {
   return '$' + Number(n).toLocaleString();
 }
 
+const EQUIPMENT_CATEGORIES = ['pump', 'skimmer', 'biofalls', 'uv_clarifier', 'aeration', 'bottom_drain', 'lighting', 'auto_dosing', 'ionizer', 'other_equipment'];
+const MATERIAL_CATEGORIES = ['liner', 'underlayment', 'rock', 'gravel', 'sand', 'pipe_pvc', 'fittings', 'electrical', 'concrete', 'other_material'];
+
+const EMPTY_EQUIPMENT = { name: '', category: 'pump', model: '', gph: '', watts: '', cost: '' };
+const EMPTY_MATERIAL  = { name: '', category: 'liner', unit: 'sq ft', cost: '' };
+
+function CatalogTab({ catalog, setCatalog }) {
+  const [eqForm, setEqForm]     = useState(EMPTY_EQUIPMENT);
+  const [matForm, setMatForm]   = useState(EMPTY_MATERIAL);
+  const [editEqId, setEditEqId] = useState(null);
+  const [editMatId, setEditMatId] = useState(null);
+  const [activeSection, setActiveSection] = useState('equipment');
+
+  const saveEquipment = () => {
+    if (!eqForm.name || !eqForm.cost) return;
+    const item = { ...eqForm, id: editEqId || Date.now().toString(), cost: parseFloat(eqForm.cost), gph: eqForm.gph ? parseInt(eqForm.gph) : null, watts: eqForm.watts ? parseInt(eqForm.watts) : null };
+    setCatalog(prev => {
+      const eq = editEqId ? prev.equipment.map(e => e.id === editEqId ? item : e) : [...(prev.equipment || []), item];
+      return { ...prev, equipment: eq };
+    });
+    setEqForm(EMPTY_EQUIPMENT);
+    setEditEqId(null);
+  };
+
+  const saveMaterial = () => {
+    if (!matForm.name || !matForm.cost) return;
+    const item = { ...matForm, id: editMatId || Date.now().toString(), cost: parseFloat(matForm.cost) };
+    setCatalog(prev => {
+      const mats = editMatId ? prev.materials.map(m => m.id === editMatId ? item : m) : [...(prev.materials || []), item];
+      return { ...prev, materials: mats };
+    });
+    setMatForm(EMPTY_MATERIAL);
+    setEditMatId(null);
+  };
+
+  const deleteEquipment = id => setCatalog(prev => ({ ...prev, equipment: prev.equipment.filter(e => e.id !== id) }));
+  const deleteMaterial  = id => setCatalog(prev => ({ ...prev, materials: prev.materials.filter(m => m.id !== id) }));
+
+  const startEditEquipment = item => { setEqForm({ ...item, gph: item.gph || '', watts: item.watts || '' }); setEditEqId(item.id); setActiveSection('equipment'); };
+  const startEditMaterial  = item => { setMatForm(item); setEditMatId(item.id); setActiveSection('materials'); };
+
+  const inputStyle = {
+    background: C.depth2, border: `1px solid ${C.border}`, color: C.text,
+    fontFamily: C.sans, fontSize: 12, padding: '7px 10px', borderRadius: 6,
+    outline: 'none', width: '100%',
+  };
+  const selectStyle = { ...inputStyle };
+
+  const eqCount  = catalog.equipment?.length || 0;
+  const matCount = catalog.materials?.length || 0;
+
+  return (
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+
+      {/* Sidebar */}
+      <div style={{
+        width: 200, flexShrink: 0, borderRight: `1px solid ${C.border}`,
+        background: C.depth1, padding: '20px 0', display: 'flex', flexDirection: 'column', gap: 4,
+      }}>
+        <div style={{ padding: '0 16px 12px', fontFamily: C.sans, fontSize: 10, color: C.muted, letterSpacing: 1, fontWeight: 700 }}>
+          CATALOG SECTIONS
+        </div>
+        {[
+          { key: 'equipment', label: 'Equipment', icon: '⚙️', count: eqCount },
+          { key: 'materials', label: 'Materials', icon: '🪨', count: matCount },
+        ].map(s => (
+          <button key={s.key} onClick={() => setActiveSection(s.key)} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '10px 16px', background: activeSection === s.key ? `rgba(14,165,233,0.1)` : 'transparent',
+            border: 'none', borderLeft: `3px solid ${activeSection === s.key ? C.accent : 'transparent'}`,
+            color: activeSection === s.key ? C.accent : C.textDim,
+            fontFamily: C.sans, fontSize: 13, cursor: 'pointer', textAlign: 'left', width: '100%',
+          }}>
+            <span>{s.icon}</span>
+            <span style={{ flex: 1 }}>{s.label}</span>
+            {s.count > 0 && (
+              <span style={{
+                background: C.depth3, color: C.textDim, borderRadius: 10,
+                padding: '1px 7px', fontSize: 10, fontFamily: C.font,
+              }}>{s.count}</span>
+            )}
+          </button>
+        ))}
+
+        <div style={{ marginTop: 'auto', padding: '12px 16px', borderTop: `1px solid ${C.border}` }}>
+          <div style={{ fontFamily: C.sans, fontSize: 10, color: C.muted, lineHeight: 1.6 }}>
+            Catalog is saved locally and used by the AI to price your estimates accurately.
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+
+        {activeSection === 'equipment' && (
+          <>
+            {/* Equipment Form */}
+            <div style={{
+              background: C.depth2, border: `1px solid ${C.border}`,
+              borderRadius: 12, padding: '20px', marginBottom: 24,
+            }}>
+              <div style={{ fontFamily: C.sans, fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 16, letterSpacing: 0.5 }}>
+                {editEqId ? '✏️ Edit Equipment Item' : '+ Add Equipment'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Product Name *</div>
+                  <input style={inputStyle} placeholder="e.g. Aquascape AquaSurge 3000" value={eqForm.name} onChange={e => setEqForm(p => ({ ...p, name: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Category *</div>
+                  <select style={selectStyle} value={eqForm.category} onChange={e => setEqForm(p => ({ ...p, category: e.target.value }))}>
+                    {EQUIPMENT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Your Cost ($) *</div>
+                  <input style={inputStyle} type="number" placeholder="0.00" value={eqForm.cost} onChange={e => setEqForm(p => ({ ...p, cost: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Model / SKU</div>
+                  <input style={inputStyle} placeholder="e.g. AS-3000" value={eqForm.model} onChange={e => setEqForm(p => ({ ...p, model: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>GPH Rating</div>
+                  <input style={inputStyle} type="number" placeholder="e.g. 3000" value={eqForm.gph} onChange={e => setEqForm(p => ({ ...p, gph: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Watts</div>
+                  <input style={inputStyle} type="number" placeholder="e.g. 75" value={eqForm.watts} onChange={e => setEqForm(p => ({ ...p, watts: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={saveEquipment} style={{
+                  background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accentDim} 100%)`,
+                  color: '#fff', border: 'none', fontFamily: C.sans, fontSize: 12, fontWeight: 600,
+                  padding: '8px 20px', borderRadius: 8, cursor: 'pointer',
+                }}>
+                  {editEqId ? 'Update Item' : 'Add to Catalog'}
+                </button>
+                {editEqId && (
+                  <button onClick={() => { setEqForm(EMPTY_EQUIPMENT); setEditEqId(null); }} style={{
+                    background: 'transparent', border: `1px solid ${C.border}`, color: C.muted,
+                    fontFamily: C.sans, fontSize: 12, padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+                  }}>Cancel</button>
+                )}
+              </div>
+            </div>
+
+            {/* Equipment List */}
+            {eqCount === 0 ? (
+              <div style={{ textAlign: 'center', color: C.muted, fontFamily: C.sans, fontSize: 13, marginTop: 40 }}>
+                No equipment added yet. Add your first item above.
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, letterSpacing: 1, marginBottom: 12, fontWeight: 700 }}>
+                  YOUR EQUIPMENT CATALOG ({eqCount} items)
+                </div>
+                {EQUIPMENT_CATEGORIES.filter(cat => catalog.equipment?.some(e => e.category === cat)).map(cat => (
+                  <div key={cat} style={{ marginBottom: 20 }}>
+                    <div style={{ fontFamily: C.sans, fontSize: 11, color: C.accent, letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' }}>
+                      {cat.replace(/_/g, ' ')}
+                    </div>
+                    {catalog.equipment.filter(e => e.category === cat).map(item => (
+                      <div key={item.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '10px 14px', marginBottom: 4,
+                        background: C.depth2, border: `1px solid ${C.border}`,
+                        borderRadius: 8, transition: 'border-color 0.2s',
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontFamily: C.sans, fontSize: 13, color: C.text, fontWeight: 500 }}>{item.name}</div>
+                          <div style={{ fontFamily: C.font, fontSize: 10, color: C.muted, marginTop: 2 }}>
+                            {item.model && `${item.model} · `}{item.gph && `${item.gph} GPH · `}{item.watts && `${item.watts}W`}
+                          </div>
+                        </div>
+                        <div style={{ fontFamily: C.font, fontSize: 15, color: C.koi, fontWeight: 700, minWidth: 80, textAlign: 'right' }}>
+                          ${item.cost.toLocaleString()}
+                        </div>
+                        <button onClick={() => startEditEquipment(item)} style={{
+                          background: 'transparent', border: `1px solid ${C.border}`, color: C.textDim,
+                          fontFamily: C.sans, fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                        }}>Edit</button>
+                        <button onClick={() => deleteEquipment(item.id)} style={{
+                          background: 'transparent', border: `1px solid rgba(239,68,68,0.3)`, color: C.error,
+                          fontFamily: C.sans, fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                        }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeSection === 'materials' && (
+          <>
+            {/* Materials Form */}
+            <div style={{
+              background: C.depth2, border: `1px solid ${C.border}`,
+              borderRadius: 12, padding: '20px', marginBottom: 24,
+            }}>
+              <div style={{ fontFamily: C.sans, fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 16, letterSpacing: 0.5 }}>
+                {editMatId ? '✏️ Edit Material' : '+ Add Material'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Material Name *</div>
+                  <input style={inputStyle} placeholder="e.g. 45mil EPDM Liner" value={matForm.name} onChange={e => setMatForm(p => ({ ...p, name: e.target.value }))} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Category *</div>
+                  <select style={selectStyle} value={matForm.category} onChange={e => setMatForm(p => ({ ...p, category: e.target.value }))}>
+                    {MATERIAL_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Unit</div>
+                  <select style={selectStyle} value={matForm.unit} onChange={e => setMatForm(p => ({ ...p, unit: e.target.value }))}>
+                    {['sq ft', 'linear ft', 'ton', 'yard', 'bag', 'roll', 'each', 'gallon'].map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Cost per Unit ($) *</div>
+                  <input style={inputStyle} type="number" placeholder="0.00" value={matForm.cost} onChange={e => setMatForm(p => ({ ...p, cost: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={saveMaterial} style={{
+                  background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accentDim} 100%)`,
+                  color: '#fff', border: 'none', fontFamily: C.sans, fontSize: 12, fontWeight: 600,
+                  padding: '8px 20px', borderRadius: 8, cursor: 'pointer',
+                }}>
+                  {editMatId ? 'Update Material' : 'Add to Catalog'}
+                </button>
+                {editMatId && (
+                  <button onClick={() => { setMatForm(EMPTY_MATERIAL); setEditMatId(null); }} style={{
+                    background: 'transparent', border: `1px solid ${C.border}`, color: C.muted,
+                    fontFamily: C.sans, fontSize: 12, padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+                  }}>Cancel</button>
+                )}
+              </div>
+            </div>
+
+            {/* Materials List */}
+            {matCount === 0 ? (
+              <div style={{ textAlign: 'center', color: C.muted, fontFamily: C.sans, fontSize: 13, marginTop: 40 }}>
+                No materials added yet. Add your first item above.
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontFamily: C.sans, fontSize: 11, color: C.muted, letterSpacing: 1, marginBottom: 12, fontWeight: 700 }}>
+                  YOUR MATERIALS CATALOG ({matCount} items)
+                </div>
+                {MATERIAL_CATEGORIES.filter(cat => catalog.materials?.some(m => m.category === cat)).map(cat => (
+                  <div key={cat} style={{ marginBottom: 20 }}>
+                    <div style={{ fontFamily: C.sans, fontSize: 11, color: C.accent, letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' }}>
+                      {cat.replace(/_/g, ' ')}
+                    </div>
+                    {catalog.materials.filter(m => m.category === cat).map(item => (
+                      <div key={item.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '10px 14px', marginBottom: 4,
+                        background: C.depth2, border: `1px solid ${C.border}`,
+                        borderRadius: 8,
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontFamily: C.sans, fontSize: 13, color: C.text, fontWeight: 500 }}>{item.name}</div>
+                          <div style={{ fontFamily: C.font, fontSize: 10, color: C.muted, marginTop: 2 }}>per {item.unit}</div>
+                        </div>
+                        <div style={{ fontFamily: C.font, fontSize: 15, color: C.koi, fontWeight: 700, minWidth: 80, textAlign: 'right' }}>
+                          ${item.cost.toLocaleString()}
+                          <span style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}>/{item.unit}</span>
+                        </div>
+                        <button onClick={() => startEditMaterial(item)} style={{
+                          background: 'transparent', border: `1px solid ${C.border}`, color: C.textDim,
+                          fontFamily: C.sans, fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                        }}>Edit</button>
+                        <button onClick={() => deleteMaterial(item.id)} style={{
+                          background: 'transparent', border: `1px solid rgba(239,68,68,0.3)`, color: C.error,
+                          fontFamily: C.sans, fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                        }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ProposalTab({ data }) {
   if (!data) {
     return (
@@ -752,6 +1051,13 @@ function LogTab({ log }) {
   );
 }
 
+const EMPTY_CATALOG = { equipment: [], materials: [] };
+
+function loadCatalog() {
+  try { return JSON.parse(localStorage.getItem('pondmaster_catalog')) || EMPTY_CATALOG; }
+  catch { return EMPTY_CATALOG; }
+}
+
 export default function App() {
   const [tab, setTab] = useState('Chat');
   const [messages, setMessages] = useState([]);
@@ -761,6 +1067,15 @@ export default function App() {
   const [laborRate, setLaborRate] = useState(75);
   const [pipelineData, setPipelineData] = useState(null);
   const [log, setLog] = useState([]);
+  const [catalog, setCatalogState] = useState(loadCatalog);
+
+  const setCatalog = useCallback(updater => {
+    setCatalogState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      localStorage.setItem('pondmaster_catalog', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const runPipeline = async () => {
     if (!input.trim() || running) return;
@@ -775,7 +1090,7 @@ export default function App() {
       const res = await fetch('/api/pipeline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobDescription: desc, laborRate }),
+        body: JSON.stringify({ jobDescription: desc, laborRate, catalog }),
       });
       const json = await res.json();
 
@@ -821,7 +1136,8 @@ export default function App() {
     }
   };
 
-  const tabs = ['Chat', 'Proposal', 'Log'];
+  const tabs = ['Chat', 'Proposal', 'Catalog', 'Log'];
+  const catalogCount = (catalog.equipment?.length || 0) + (catalog.materials?.length || 0);
 
   return (
     <div style={{
@@ -876,9 +1192,14 @@ export default function App() {
                     marginLeft: 6, background: C.depth3,
                     color: C.textDim, borderRadius: 10,
                     padding: '1px 6px', fontSize: 9, fontFamily: C.font,
-                  }}>
-                    {log.length}
-                  </span>
+                  }}>{log.length}</span>
+                )}
+                {t === 'Catalog' && catalogCount > 0 && (
+                  <span style={{
+                    marginLeft: 6, background: 'rgba(249,115,22,0.15)',
+                    color: C.koi, borderRadius: 10,
+                    padding: '1px 6px', fontSize: 9, fontFamily: C.font,
+                  }}>{catalogCount}</span>
                 )}
               </button>
             ))}
@@ -894,6 +1215,7 @@ export default function App() {
             <ChatTab messages={messages} input={input} setInput={setInput} onRun={runPipeline} running={running} />
           )}
           {tab === 'Proposal' && <ProposalTab data={pipelineData} />}
+          {tab === 'Catalog' && <CatalogTab catalog={catalog} setCatalog={setCatalog} />}
           {tab === 'Log' && <LogTab log={log} />}
         </div>
       </div>

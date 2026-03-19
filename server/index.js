@@ -158,13 +158,38 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+function buildCatalogContext(catalog) {
+  if (!catalog || (!catalog.equipment?.length && !catalog.materials?.length)) return '';
+
+  const lines = ['\n\nVENDOR CATALOG (use these exact prices — do not estimate):'];
+
+  if (catalog.equipment?.length) {
+    lines.push('\nEQUIPMENT:');
+    catalog.equipment.forEach(item => {
+      lines.push(`  - ${item.category} | ${item.name}${item.model ? ' (' + item.model + ')' : ''} | $${item.cost} each${item.gph ? ' | ' + item.gph + ' GPH' : ''}${item.watts ? ' | ' + item.watts + 'W' : ''}`);
+    });
+  }
+
+  if (catalog.materials?.length) {
+    lines.push('\nMATERIALS:');
+    catalog.materials.forEach(item => {
+      lines.push(`  - ${item.category} | ${item.name} | $${item.cost} per ${item.unit}`);
+    });
+  }
+
+  lines.push('\nWhen catalog items match what is needed, use their exact costs. For items not in the catalog, use market estimates.');
+  return lines.join('\n');
+}
+
 app.post('/api/pipeline', async (req, res) => {
-  const { jobDescription, laborRate = 75 } = req.body;
+  const { jobDescription, laborRate = 75, catalog } = req.body;
   if (!jobDescription) {
     return res.status(400).json({ success: false, error: 'jobDescription is required' });
   }
 
+  const catalogContext = buildCatalogContext(catalog);
   const log = [];
+
   try {
     // Agent 1 — Intake
     const intake = await runAgent(INTAKE_SYSTEM, `Job Description: ${jobDescription}`, log, 'Intake Agent');
@@ -177,10 +202,10 @@ app.post('/api/pipeline', async (req, res) => {
       'Estimator Agent'
     );
 
-    // Agent 3 — Equipment
+    // Agent 3 — Equipment (catalog injected here)
     const equipment = await runAgent(
       EQUIPMENT_SYSTEM,
-      `Intake: ${JSON.stringify(intake)}\nCalculations: ${JSON.stringify(calc)}`,
+      `Intake: ${JSON.stringify(intake)}\nCalculations: ${JSON.stringify(calc)}${catalogContext}`,
       log,
       'Equipment Agent'
     );
@@ -193,10 +218,10 @@ app.post('/api/pipeline', async (req, res) => {
       'Labor Planner'
     );
 
-    // Agent 5 — Proposal Writer
+    // Agent 5 — Proposal Writer (catalog injected here too)
     const proposal = await runAgent(
       PROPOSAL_SYSTEM,
-      `Intake: ${JSON.stringify(intake)}\nCalculations: ${JSON.stringify(calc)}\nEquipment: ${JSON.stringify(equipment)}\nLabor: ${JSON.stringify(labor)}\nLabor Rate: $${laborRate}/hr`,
+      `Intake: ${JSON.stringify(intake)}\nCalculations: ${JSON.stringify(calc)}\nEquipment: ${JSON.stringify(equipment)}\nLabor: ${JSON.stringify(labor)}\nLabor Rate: $${laborRate}/hr${catalogContext}`,
       log,
       'Proposal Writer'
     );
